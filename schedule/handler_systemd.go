@@ -24,15 +24,16 @@ import (
 )
 
 const (
-	systemctlStart   = "start"
-	systemctlStop    = "stop"
-	systemctlEnable  = "enable"
-	systemctlDisable = "disable"
-	systemctlStatus  = "status"
-	systemctlReload  = "daemon-reload"
-	flagUserUnit     = "--user"
-	flagNoPager      = "--no-pager"
-	unitNotFound     = "not-found"
+	systemctlStart          = "start"
+	systemctlStop           = "stop"
+	systemctlEnable         = "enable"
+	systemctlEnableAndStart = "enable --now"
+	systemctlDisable        = "disable"
+	systemctlStatus         = "status"
+	systemctlReload         = "daemon-reload"
+	flagUserUnit            = "--user"
+	flagNoPager             = "--no-pager"
+	unitNotFound            = "not-found"
 
 	// https://www.freedesktop.org/software/systemd/man/systemctl.html#Exit%20status
 	codeStatusNotRunning   = 3
@@ -166,19 +167,16 @@ func (h *HandlerSystemd) CreateJob(job *Config, schedules []*calendar.Event, per
 
 	timerName := systemd.GetTimerFile(job.ProfileName, job.CommandName)
 
-	// enable the job
-	err = runSystemctlCommand(timerName, systemctlEnable, unitType, false)
+	// enable the job and start it unless "no-start" is set
+	enableCommand := systemctlEnableAndStart
+	if _, noStart := job.GetFlag("no-start"); noStart {
+		enableCommand = systemctlEnable
+	}
+	err = runSystemctlCommand(timerName, enableCommand, unitType, false)
 	if err != nil {
 		return err
 	}
 
-	if _, noStart := job.GetFlag("no-start"); !noStart {
-		// annoyingly, we also have to start it, otherwise it won't be active until the next reboot
-		err = runSystemctlCommand(timerName, systemctlStart, unitType, false)
-		if err != nil {
-			return err
-		}
-	}
 	fmt.Println("")
 	// display a status after starting it
 	_ = runSystemctlCommand(timerName, systemctlStatus, unitType, false)
@@ -381,7 +379,8 @@ func runSystemctlCommand(timerName, command string, unitType systemd.UnitType, s
 		args = append(args, getUserFlags()...)
 	}
 	args = append(args, flagNoPager)
-	args = append(args, command, timerName)
+	args = append(args, strings.Split(command, " ")...)
+	args = append(args, timerName)
 
 	cmd, err := systemctlCommand(args...)
 	if err != nil {
